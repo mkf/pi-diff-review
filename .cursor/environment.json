@@ -1,0 +1,4 @@
+{
+  "install": "set -euo pipefail; export PATH=\"$HOME/.local/bin:$PATH\"; if [ -x /agent/repos/pi-diff-review/scripts/setup-dev.sh ]; then bash /agent/repos/pi-diff-review/scripts/setup-dev.sh; elif [ -x scripts/setup-dev.sh ]; then bash scripts/setup-dev.sh; else cd /agent/repos/pi-diff-review && npm ci && python3 -m pip install --user --upgrade pre-commit; fi",
+  "start": "set -euo pipefail; export PATH=\"$HOME/.local/bin:$PATH\"; if [ -x /agent/repos/pi-diff-review/scripts/setup-dev.sh ]; then bash /agent/repos/pi-diff-review/scripts/setup-dev.sh --hooks-only; elif [ -x scripts/setup-dev.sh ]; then bash scripts/setup-dev.sh --hooks-only; fi"
+}
