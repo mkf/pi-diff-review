@@ -1,0 +1,4 @@
+{
+  "install": "if [ -x scripts/setup-dev.sh ]; then bash scripts/setup-dev.sh; elif [ -x pi-diff-review/scripts/setup-dev.sh ]; then bash pi-diff-review/scripts/setup-dev.sh; else bash /workspace/pi-diff-review/scripts/setup-dev.sh; fi",
+  "start": "export PATH=\"$HOME/.local/bin:$PATH\"; if [ -x scripts/setup-dev.sh ]; then bash scripts/setup-dev.sh --hooks-only; elif [ -x pi-diff-review/scripts/setup-dev.sh ]; then bash pi-diff-review/scripts/setup-dev.sh --hooks-only; elif [ -x /workspace/pi-diff-review/scripts/setup-dev.sh ]; then bash /workspace/pi-diff-review/scripts/setup-dev.sh --hooks-only; fi"
+}

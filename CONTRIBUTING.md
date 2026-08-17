@@ -5,6 +5,12 @@
 Install [pre-commit](https://pre-commit.com/) and enable the repository hooks to run typechecking, tests, and formatting checks before each commit:
 
 ```bash
+bash scripts/setup-dev.sh
+```
+
+That installs npm dependencies, `pre-commit`, and the git hooks. Cloud Agent environments run the same script from `.cursor/environment.json`. If tools are already present, you can enable hooks only with:
+
+```bash
 pre-commit install
 ```
 
