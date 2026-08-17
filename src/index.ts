@@ -3,7 +3,7 @@ import type {
   ExtensionAPI,
   ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
-import { getDiff, parseDiffSource } from "./diff/source.ts";
+import { getDiffSmart, parseDiffSource } from "./diff/source.ts";
 import { parseDiff } from "./diff/parser.ts";
 import { applyReviewedOverlay } from "./diff/turn-based-overlay.ts";
 import { PiModelDiffExplainer } from "./explanation/explainer.ts";
@@ -42,14 +42,19 @@ export function registerDiffReviewCommand(pi: ExtensionAPI): void {
     description: "Review a git diff in a custom TUI (/diff [git diff args])",
     handler: async (args: string, ctx: ExtensionCommandContext) => {
       let source;
-      let diffText: string;
+      let resolved;
       try {
         source = parseDiffSource(args);
-        diffText = getDiff(ctx.cwd, source);
+        resolved = getDiffSmart(ctx.cwd, source);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         ctx.ui.notify(`Unable to read diff: ${message}`, "error");
         return;
+      }
+
+      const diffText = resolved.text;
+      if (resolved.notice) {
+        ctx.ui.notify(resolved.notice, "info");
       }
 
       if (!diffText.trim()) {
@@ -77,8 +82,9 @@ export function registerDiffReviewCommand(pi: ExtensionAPI): void {
         }
       }
       await openReview(pi, ctx, {
-        title: source.label,
+        title: source.label + (resolved.titleSuffix ?? ""),
         promptLabel: source.promptLabel,
+        reviewCwd: resolved.repoCwd,
         cacheKey: getReviewCacheKey(ctx.cwd, source.label, diffText),
         reviewLines,
         markReviewed:
@@ -142,13 +148,15 @@ async function openReview(
     promptLabel: string;
     cacheKey: string;
     reviewLines: ReviewLine[];
+    reviewCwd?: string;
     buildPrompt: (comments: ReviewComment[]) => string;
     markReviewed?: (reviewedLines: ReviewLine[]) => void;
     workspaceStore?: WorkspaceCommentStore;
   },
 ): Promise<void> {
+  const reviewCwd = options.reviewCwd ?? ctx.cwd;
   const workspaceStore =
-    options.workspaceStore ?? new WorkspaceCommentStore(ctx.cwd);
+    options.workspaceStore ?? new WorkspaceCommentStore(reviewCwd);
   const cachedComments = getCachedComments(ctx, options.cacheKey);
   const comments = workspaceStore.getVisibleComments(options.reviewLines);
   for (const [id, comment] of cachedComments) {

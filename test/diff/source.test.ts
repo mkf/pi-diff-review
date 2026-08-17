@@ -1,10 +1,34 @@
 import { execFileSync } from "node:child_process";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { getDiff, parseDiffSource } from "../../src/diff/source.ts";
+import {
+  getDiff,
+  getDiffSmart,
+  parseDiffSource,
+} from "../../src/diff/source.ts";
+
+// git error texts are locale-dependent; keep assertions on the C locale.
+process.env.LC_ALL = "C";
+
+function initRepoWithChange(dir: string, file = "example.txt"): void {
+  mkdirSync(dir, { recursive: true });
+  execFileSync("git", ["init"], { cwd: dir, stdio: "ignore" });
+  execFileSync("git", ["config", "user.email", "test@example.com"], {
+    cwd: dir,
+  });
+  execFileSync("git", ["config", "user.name", "Test User"], { cwd: dir });
+  execFileSync("git", ["config", "commit.gpgsign", "false"], { cwd: dir });
+  writeFileSync(join(dir, file), "before\n");
+  execFileSync("git", ["add", file], { cwd: dir });
+  execFileSync("git", ["commit", "-m", "initial"], {
+    cwd: dir,
+    stdio: "ignore",
+  });
+  writeFileSync(join(dir, file), "after\n");
+}
 
 describe("parseDiffSource", () => {
   it("defaults to the unstaged git diff", () => {
@@ -97,6 +121,78 @@ describe("getDiff", () => {
       assert.throws(
         () => getDiff(cwd, parseDiffSource("")),
         /not a git repository/i,
+      );
+    } finally {
+      rmSync(cwd, { force: true, recursive: true });
+    }
+  });
+});
+
+describe("getDiffSmart", () => {
+  it("reads the diff from the session cwd when it is a repository", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-diff-review-"));
+    try {
+      initRepoWithChange(cwd);
+      const resolved = getDiffSmart(cwd, parseDiffSource(""));
+      assert.match(resolved.text, /diff --git a\/example\.txt/);
+      assert.equal(resolved.repoCwd, cwd);
+      assert.equal(resolved.notice, undefined);
+      assert.equal(resolved.titleSuffix, undefined);
+    } finally {
+      rmSync(cwd, { force: true, recursive: true });
+    }
+  });
+
+  it("falls back to a single subdirectory repository with changes", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-diff-review-"));
+    try {
+      initRepoWithChange(join(cwd, "inner"));
+      const resolved = getDiffSmart(cwd, parseDiffSource(""));
+      assert.equal(resolved.repoCwd, join(cwd, "inner"));
+      assert.match(resolved.text, /diff --git a\/example\.txt/);
+      assert.equal(resolved.titleSuffix, " (inner/)");
+      assert.match(resolved.notice ?? "", /No \.git in/);
+      assert.match(resolved.notice ?? "", /inner/);
+    } finally {
+      rmSync(cwd, { force: true, recursive: true });
+    }
+  });
+
+  it("refuses to guess when several subdirectory repositories have changes", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-diff-review-"));
+    try {
+      initRepoWithChange(join(cwd, "one"));
+      initRepoWithChange(join(cwd, "two"));
+      assert.throws(
+        () => getDiffSmart(cwd, parseDiffSource("")),
+        /multiple subdirectory repositories: one, two/,
+      );
+    } finally {
+      rmSync(cwd, { force: true, recursive: true });
+    }
+  });
+
+  it("keeps git's own error when nothing at all is a repository", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-diff-review-"));
+    try {
+      assert.throws(
+        () => getDiffSmart(cwd, parseDiffSource("")),
+        /not a git repository/i,
+      );
+    } finally {
+      rmSync(cwd, { force: true, recursive: true });
+    }
+  });
+
+  it("reports subdirectory repositories without matching changes", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-diff-review-"));
+    try {
+      const clean = join(cwd, "clean");
+      initRepoWithChange(clean);
+      execFileSync("git", ["checkout", "--", "example.txt"], { cwd: clean });
+      assert.throws(
+        () => getDiffSmart(cwd, parseDiffSource("")),
+        /no matching changes in subdirectory repositories \(clean\)/,
       );
     } finally {
       rmSync(cwd, { force: true, recursive: true });
