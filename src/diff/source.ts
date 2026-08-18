@@ -96,11 +96,16 @@ function normalizeDiffPathspecs(args: string[]): string[] {
 
 export const DIFF_MAX_BUFFER_BYTES = 128 * 1024 * 1024;
 
+function gitEnv(): NodeJS.ProcessEnv {
+  return { ...process.env, LC_ALL: "C", LANG: "C" };
+}
+
 export function getDiff(cwd: string, source: DiffSource): string {
   const args = ["diff", "--no-color", "--unified=3", ...source.args];
   const result = spawnSync("git", args, {
     cwd,
     encoding: "utf8",
+    env: gitEnv(),
     maxBuffer: DIFF_MAX_BUFFER_BYTES,
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -138,6 +143,7 @@ function isGitWorkTree(cwd: string): boolean {
   const result = spawnSync("git", ["rev-parse", "--is-inside-work-tree"], {
     cwd,
     encoding: "utf8",
+    env: gitEnv(),
     stdio: ["ignore", "pipe", "ignore"],
   });
   return result.status === 0 && result.stdout.trim() === "true";
@@ -151,9 +157,14 @@ function subdirectoryRepos(cwd: string): string[] {
     return [];
   }
   return entries
-    .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+    .filter(
+      (entry) =>
+        !entry.name.startsWith(".") &&
+        (entry.isDirectory() || entry.isSymbolicLink()),
+    )
     .map((entry) => join(cwd, entry.name))
-    .filter((dir) => isGitWorkTree(dir));
+    .filter((dir) => isGitWorkTree(dir))
+    .sort((a, b) => basename(a).localeCompare(basename(b)));
 }
 
 export function getDiffSmart(cwd: string, source: DiffSource): ResolvedDiff {
@@ -162,7 +173,13 @@ export function getDiffSmart(cwd: string, source: DiffSource): ResolvedDiff {
   }
 
   const repos = subdirectoryRepos(cwd);
+  if (repos.length === 0) {
+    // Surface git's own "not a git repository" error for `cwd`.
+    return { text: getDiff(cwd, source), repoCwd: cwd };
+  }
+
   const changed: ResolvedDiff[] = [];
+  const errors: Error[] = [];
   for (const repo of repos) {
     try {
       const text = getDiff(repo, source);
@@ -173,20 +190,17 @@ export function getDiffSmart(cwd: string, source: DiffSource): ResolvedDiff {
           titleSuffix: ` (${basename(repo)}/)`,
         });
       }
-    } catch {
-      // Pathspecs/revisions that don't resolve in this repository.
+    } catch (error) {
+      errors.push(error instanceof Error ? error : new Error(String(error)));
     }
   }
 
-  if (changed.length === 0) {
-    if (repos.length === 0) {
-      // Surface git's own "not a git repository" error for `cwd`.
-      return { text: getDiff(cwd, source), repoCwd: cwd };
-    }
-    throw new Error(
-      `No .git in ${cwd} and no matching changes in subdirectory repositories ` +
-        `(${repos.map((dir) => basename(dir)).join(", ")}).`,
-    );
+  if (changed.length === 1) {
+    const only = changed[0]!;
+    return {
+      ...only,
+      notice: `No .git in ${cwd}; reviewing changes in ${basename(only.repoCwd)}/.`,
+    };
   }
 
   if (changed.length > 1) {
@@ -197,11 +211,14 @@ export function getDiffSmart(cwd: string, source: DiffSource): ResolvedDiff {
     );
   }
 
-  const only = changed[0]!;
-  return {
-    ...only,
-    notice: `No .git in ${cwd}; reviewing changes in ${basename(only.repoCwd)}/.`,
-  };
+  if (errors.length > 0) {
+    const details = errors.map((error) => error.message).join("\n");
+    throw new Error(
+      `No .git in ${cwd}; git failed in subdirectory repositories:\n${details}`,
+    );
+  }
+
+  return { text: "", repoCwd: repos[0]! };
 }
 
 function formatSpawnError(error: Error & { code?: string }): string {

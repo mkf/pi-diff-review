@@ -1,6 +1,12 @@
 import { execFileSync } from "node:child_process";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
@@ -9,9 +15,6 @@ import {
   getDiffSmart,
   parseDiffSource,
 } from "../../src/diff/source.ts";
-
-// git error texts are locale-dependent; keep assertions on the C locale.
-process.env.LC_ALL = "C";
 
 function initRepoWithChange(dir: string, file = "example.txt"): void {
   mkdirSync(dir, { recursive: true });
@@ -161,8 +164,8 @@ describe("getDiffSmart", () => {
   it("refuses to guess when several subdirectory repositories have changes", () => {
     const cwd = mkdtempSync(join(tmpdir(), "pi-diff-review-"));
     try {
-      initRepoWithChange(join(cwd, "one"));
       initRepoWithChange(join(cwd, "two"));
+      initRepoWithChange(join(cwd, "one"));
       assert.throws(
         () => getDiffSmart(cwd, parseDiffSource("")),
         /multiple subdirectory repositories: one, two/,
@@ -184,18 +187,45 @@ describe("getDiffSmart", () => {
     }
   });
 
-  it("reports subdirectory repositories without matching changes", () => {
+  it("returns an empty diff when subdirectory repositories have no matching changes", () => {
     const cwd = mkdtempSync(join(tmpdir(), "pi-diff-review-"));
     try {
       const clean = join(cwd, "clean");
       initRepoWithChange(clean);
       execFileSync("git", ["checkout", "--", "example.txt"], { cwd: clean });
+      const resolved = getDiffSmart(cwd, parseDiffSource(""));
+      assert.equal(resolved.text.trim(), "");
+      assert.equal(resolved.repoCwd, clean);
+    } finally {
+      rmSync(cwd, { force: true, recursive: true });
+    }
+  });
+
+  it("surfaces git errors from subdirectory repositories", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-diff-review-"));
+    try {
+      initRepoWithChange(join(cwd, "inner"));
       assert.throws(
-        () => getDiffSmart(cwd, parseDiffSource("")),
-        /no matching changes in subdirectory repositories \(clean\)/,
+        () => getDiffSmart(cwd, parseDiffSource("no-such-revision")),
+        /git failed in subdirectory repositories/,
       );
     } finally {
       rmSync(cwd, { force: true, recursive: true });
+    }
+  });
+
+  it("follows a symlink to an immediate child repository", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-diff-review-"));
+    const real = mkdtempSync(join(tmpdir(), "pi-diff-review-real-"));
+    try {
+      initRepoWithChange(real);
+      symlinkSync(real, join(cwd, "inner"));
+      const resolved = getDiffSmart(cwd, parseDiffSource(""));
+      assert.equal(resolved.repoCwd, join(cwd, "inner"));
+      assert.match(resolved.text, /diff --git a\/example\.txt/);
+    } finally {
+      rmSync(cwd, { force: true, recursive: true });
+      rmSync(real, { force: true, recursive: true });
     }
   });
 });

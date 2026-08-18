@@ -59,6 +59,8 @@ Review a single file by using a git pathspec after `--`. Pi path autocomplete wo
 
 `/diff <git-diff-args>` is passed through to `git diff`, so these examples are equivalent to running `git diff`, `git diff --cached`, and `git diff main...HEAD` locally before opening the review UI.
 
+If the session cwd is not a git repository, `/diff` looks at **immediate** child directories (not nested paths such as `repos/name`). When exactly one child repository has matching changes, that tree is reviewed. When several have changes, `/diff` lists them instead of guessing.
+
 Experimental: track reviewed turns while keeping the full overall diff visible:
 
 ```text

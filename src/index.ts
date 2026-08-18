@@ -64,7 +64,7 @@ export function registerDiffReviewCommand(pi: ExtensionAPI): void {
 
       const reviewLines = parseDiff(diffText);
       const turnBasedScopeKey = source.turnBased
-        ? getReviewScopeKey(ctx.cwd, source.args)
+        ? getReviewScopeKey(resolved.repoCwd, source.args)
         : undefined;
       if (turnBasedScopeKey) {
         const previousLines = getLastReviewSnapshot(ctx, turnBasedScopeKey);
@@ -85,7 +85,7 @@ export function registerDiffReviewCommand(pi: ExtensionAPI): void {
         title: source.label + (resolved.titleSuffix ?? ""),
         promptLabel: source.promptLabel,
         reviewCwd: resolved.repoCwd,
-        cacheKey: getReviewCacheKey(ctx.cwd, source.label, diffText),
+        cacheKey: getReviewCacheKey(resolved.repoCwd, source.label, diffText),
         reviewLines,
         markReviewed:
           turnBasedScopeKey == null
